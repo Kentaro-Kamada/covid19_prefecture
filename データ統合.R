@@ -10,11 +10,11 @@ library(pdftools)
 
 scrape_res <- read_html('http://www.pref.hokkaido.lg.jp/hf/kth/kak/hasseijoukyou.htm')
 
-data <- 
+data <-
   scrape_res %>% 
   html_node(xpath = '//*[@id="rs_contents"]/span/table') %>% 
   html_table() %>% 
-  as_tibble() %>% 
+  as_tibble() %>%
   # 全角を半角に
   mutate_all(stringi::stri_trans_nfkc) %>% 
   # 列名を埋める，ついでにいらない行を落とす
@@ -28,9 +28,9 @@ data <-
           日 = str_pad(string = 日, width = 2, pad = '0', side = 'left')) %>% 
   unite(col = 公表日, c(年, 月, 日), sep = '-') %>% 
   # 年代のクリーニング
-  mutate(年代 = case_when(年代 == '10歳未満' ~ 0,
-                          年代 %in% c('高齢者', '非公表') ~ NA_real_,
-                          TRUE ~ parse_number(年代))) %>% 
+  mutate(年代 = case_when(年代 == '10歳未満' ~ '0',
+                          grepl(x = 年代, '代') ~ sub(x = 年代, '代', ''),
+                          TRUE ~ NA_character_)) %>% 
   # 性別のクリーニング
   mutate(性別 = na_if(性別, '非公表')) %>% 
   # 居住地のクリーニング
@@ -51,8 +51,12 @@ write_excel_csv(x = data, path = 'data/covid19_Hokkaido.csv')
 
 # 千葉県 --------------------------------------------------------------
 
-scrape_res <- 
-  pdf_text('https://www.pref.chiba.lg.jp/shippei/press/2019/documents/0409kanssensya.pdf')
+scrape_res <-
+  read_html('https://www.pref.chiba.lg.jp/shippei/press/2019/ncov-index.html', encoding = 'UTF-8') %>% 
+  html_nodes(xpath = '//*[@id="tmp_contents"]/p[1]/a') %>% 
+  html_attr('href') %>% 
+  str_c('https://www.pref.chiba.lg.jp', .) %>% 
+  pdf_text()
 
 data <- 
   scrape_res %>% 
@@ -114,8 +118,12 @@ write_excel_csv(data, 'data/covid19_Chiba.csv')
 
 # 埼玉県 ---------------------------------------------------------
 
-scrape_res <- 
-  pdf_text('https://www.pref.saitama.lg.jp/a0701/covid19/documents/yousei0410.pdf')
+scrape_res <-
+  read_html('https://www.pref.saitama.lg.jp/a0701/covid19/jokyo.html', encoding = 'UTF-8') %>%
+  html_nodes(xpath = '//*[@id="tmp_contents"]/p[3]/a') %>% 
+  html_attr('href') %>% 
+  str_c('https://www.pref.saitama.lg.jp', .) %>% 
+  pdf_text()
 
 data <-
   scrape_res %>% 
@@ -231,7 +239,8 @@ write_excel_csv(data, 'data/covid19_Kanagawa.csv')
 # データのマージ -----------------------------------------------------------------
 
 merge_data <-
-  map_dfr(.x = list.files('data', pattern = 'csv'), 
+  map_dfr(.x = list.files('data', pattern = 'csv') %>% 
+            str_subset(., '(?<!merge).csv$'), 
       .f = ~{read_csv(file = str_c('data/', .),
                       col_types = cols(年代 = col_character()))})
 
@@ -242,7 +251,8 @@ write_excel_csv(merge_data, 'data/covid19_merge.csv')
 # 分析 ----------------------------------------------------------------------
 
 df <- read_csv('data/covid19_merge.csv',
-               col_types = cols(年代 = col_character()))
+               col_types = cols(年代 = col_character(),
+                                  入退院の状況 = col_character()))
 
 
 # 関東に絞る -------------------------------------------------------------------
@@ -269,7 +279,7 @@ Kanto %>%
   ggplot(aes(x = 年代, fill = 性別))+
   geom_bar()
 
-# 性別時系列
+# 性別
 Kanto %>% 
   group_by(性別, 公表日) %>% 
   summarise(一日当たり = n()) %>% 
@@ -279,44 +289,52 @@ Kanto %>%
   geom_point()+
   geom_line()
 
+# 年齢別
+Kanto %>% 
+  group_by(年代, 公表日) %>% 
+  summarise(一日当たり = n()) %>% 
+  mutate(累計 = cumsum(一日当たり)) %>% 
+  drop_na() %>% 
+  ggplot(aes(公表日, 累計, color = 年代))+
+  geom_point()+
+  geom_line()
+
+# （修理中） -------------------------------------------------------------------
 
 
-# # （修理中） -------------------------------------------------------------------
-# 
-# 
-# df %>% 
-#   group_by(都道府県, 公表日) %>% 
-#   summarise(一日の感染者数 = n()) %>% 
-#   mutate(累計感染者数 = cumsum(一日の感染者数))  %>% 
-#   arrange(都道府県, desc(公表日)) %>% {
-#     print(.)
-#     ggplot(., aes(x = 公表日)) +
-#       geom_line(aes(y = 累計感染者数))+
-#       geom_point(aes(y = 累計感染者数))+
-#       geom_bar(aes(y = 一日の感染者数), stat = 'identity')+
-#       facet_wrap(~都道府県)
-#   }
-# 
-# 
-# df %>% 
-#   ggplot(aes(x = 年代, fill = 性別))+
-#   geom_bar()+
-#   facet_grid(~都道府県)
-# 
-# df %>% 
-#   group_by(性別, 公表日) %>% 
-#   summarise(一日当たり = n()) %>% 
-#   mutate(累計 = cumsum(一日当たり)) %>% 
-#   drop_na() %>% 
-#   ggplot(aes(公表日, 累計, color = 性別))+
-#   geom_point()+
-#   geom_line()
-# 
-# df %>% 
-#   group_by(年代, 公表日) %>% 
-#   summarise(一日当たり = n()) %>% 
-#   mutate(累計 = cumsum(一日当たり)) %>% 
-#   drop_na() %>% 
-#   ggplot(aes(公表日, 累計, color = 年代))+
-#   geom_point()+
-#   geom_line()
+df %>%
+  group_by(都道府県, 公表日) %>%
+  summarise(一日の感染者数 = n()) %>%
+  mutate(累計感染者数 = cumsum(一日の感染者数))  %>%
+  arrange(都道府県, desc(公表日)) %>% {
+    print(.)
+    ggplot(., aes(x = 公表日)) +
+      geom_line(aes(y = 累計感染者数))+
+      geom_point(aes(y = 累計感染者数))+
+      geom_bar(aes(y = 一日の感染者数), stat = 'identity')+
+      facet_wrap(~都道府県)
+  }
+
+
+df %>%
+  ggplot(aes(x = 年代, fill = 性別))+
+  geom_bar()
+  facet_grid(~都道府県)
+
+df %>%
+  group_by(性別, 公表日) %>%
+  summarise(一日当たり = n()) %>%
+  mutate(累計 = cumsum(一日当たり)) %>%
+  drop_na() %>%
+  ggplot(aes(公表日, 累計, color = 性別))+
+  geom_point()+
+  geom_line()
+
+df %>%
+  group_by(年代, 公表日) %>%
+  summarise(一日当たり = n()) %>%
+  mutate(累計 = cumsum(一日当たり)) %>%
+  drop_na() %>%
+  ggplot(aes(公表日, 累計, color = 年代))+
+  geom_point()+
+  geom_line()
