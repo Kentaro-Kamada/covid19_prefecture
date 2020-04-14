@@ -3,6 +3,29 @@ library(lubridate)
 library(rvest)
 library(pdftools)
 
+print_all <- function(x){
+  print(x, n = Inf)
+}
+
+# コーディング方針 ----------------------------------------------------------------
+
+# 公表日
+## 患者と紐づけられた日付情報が1つの場合はそれを用いる
+## 「公表日」「発症日」のように複数ある場合は「公表日」を用いる
+
+# 性別
+## 「男性」「女性」以外は欠損値とする
+
+# 年代
+## 10歳未満は「0代」とする
+## 90歳以上の場合は「90代」カテゴリに含める
+## 調査中等の場合は欠損値とする
+
+# 居住地
+## 基本的に市区町村単位でコーディングする（北海道のみ札幌市と振興局でコーディング）
+## 都道府県外であることがわかる場合は「県外」とする
+## 「調査中」や県内であることはわかるが市町村が判然としない場合は欠損値とする
+
 
 # 各都道府県のデータ取得 -------------------------------------------------------------
 
@@ -13,8 +36,10 @@ scrape_res <- read_html('http://www.pref.hokkaido.lg.jp/hf/kth/kak/hasseijoukyou
 data <-
   scrape_res %>% 
   html_node(xpath = '//*[@id="rs_contents"]/span/table') %>% 
-  html_table() %>% 
+  html_table(fill = TRUE) %>% 
   as_tibble() %>%
+  # 全てNAの列を削る
+  filter(rowSums(is.na(.)) != ncol(.)) %>% 
   # 全角を半角に
   mutate_all(stringi::stri_trans_nfkc) %>% 
   # 列名を埋める，ついでにいらない行を落とす
@@ -28,16 +53,20 @@ data <-
           日 = str_pad(string = 日, width = 2, pad = '0', side = 'left')) %>% 
   unite(col = 公表日, c(年, 月, 日), sep = '-') %>% 
   # 年代のクリーニング
-  mutate(年代 = case_when(年代 == '10歳未満' ~ '0',
-                          grepl(x = 年代, '代') ~ sub(x = 年代, '代', ''),
+  mutate(年代 = case_when(年代 == '10歳未満' ~ '0代',
+                          grepl(x = 年代, '代') ~ 年代,
                           TRUE ~ NA_character_)) %>% 
   # 性別のクリーニング
-  mutate(性別 = na_if(性別, '非公表')) %>% 
+  mutate(性別 = case_when(性別 %in% c('男', '女') ~ paste0(性別, '性'),
+                          TRUE ~ NA_character_)) %>% 
   # 居住地のクリーニング
   mutate(居住地 =  gsub(x = 居住地, 
                      pattern = '(管内|\\(.+\\)|\\s.+死亡|\\s*\\r\\n\\s*)', 
                      replacement = '') %>% 
               sub(x = ., pattern  = '総合総合', replacement = '総合')) %>% 
+    mutate(居住地 = case_when(grepl(x = 居住地, '(札幌市|振興局)') ~ 居住地,
+                           居住地 == '非公表' ~ NA_character_,
+                           TRUE ~ '県外')) %>% 
   # 型変換
   mutate(ID = parse_double(ID),
          公表日 = parse_date(公表日)) %>% 
@@ -52,14 +81,25 @@ write_excel_csv(x = data, path = 'data/covid19_Hokkaido.csv')
 # 千葉県 --------------------------------------------------------------
 
 scrape_res <-
-  read_html('https://www.pref.chiba.lg.jp/shippei/press/2019/ncov-index.html', encoding = 'UTF-8') %>% 
-  html_nodes(xpath = '//*[@id="tmp_contents"]/p[1]/a') %>% 
-  html_attr('href') %>% 
+  read_html('https://www.pref.chiba.lg.jp/shippei/press/2019/ncov-index.html', encoding = 'UTF-8') 
+
+# データの検索
+pdf_text <-
+  tibble(
+  text = scrape_res %>%
+    html_nodes('a') %>% 
+    html_text(),
+  url = scrape_res %>% 
+    html_nodes('a') %>% 
+    html_attr('href')
+  ) %>% 
+  filter(grepl(x = text, '新型コロナウイルス感染症患者等の県内発生状況について')) %>% 
+  pull(url) %>% 
   str_c('https://www.pref.chiba.lg.jp', .) %>% 
   pdf_text()
 
-data <- 
-  scrape_res %>% 
+data <-
+  pdf_text %>% 
   str_flatten() %>% 
   # 邪魔な改行を削除
   gsub(x = ., '（県内発生）\r\n', '') %>% 
@@ -99,14 +139,17 @@ data <-
          day = str_pad(day, width = 2, side = 'left', pad = '0')) %>% 
   unite(col = '公表日', c(year, month, day), sep = '-') %>% 
   # 年代のクリーニング
-  mutate(年代 = case_when(年代 == '10歳未満' ~ '0',
-                          grepl(x = 年代, '代') ~ sub(x = 年代, '(代|代以上)', ''),
+  mutate(年代 = case_when(年代 == '10歳未満' ~ '0代',
+                          年代 == '90代以上' ~ '90代',
+                          grepl(x = 年代, '代$') ~ 年代,
                           TRUE ~ NA_character_)) %>% 
   # 性別のクリーニング
-  mutate(性別 = case_when(性別 %in% c('男性', '女性') ~ sub(x = 性別, '性', ''),
+  mutate(性別 = case_when(性別 %in% c('男性', '女性') ~ 性別,
                           TRUE ~ NA_character_)) %>% 
-  # メモ：居住地のクリーニング（県外をNAにするかどうか）
-  
+  # 居住地のクリーニング
+　mutate(居住地 = case_when(grepl(x = 居住地, '(?<!武漢)[市町村]', perl = TRUE) ~ 居住地,
+　                       TRUE ~ '県外')) %>% 
+    # メモ：調査中とかも県外になっちゃう…
   # 型変換
   mutate(公表日 = parse_date(公表日)) %>% 
   # 県名の付与
@@ -128,11 +171,11 @@ scrape_res <-
 data <-
   scrape_res %>% 
   str_flatten() %>% 
-  str_split('\r\n') %>%
+  str_split('\r\n') %>% 
   as_tibble(.name_repair = 'unique') %>% 
   # 空白処理（データフレームにしたときの列を整える）
   mutate(...1 = sub(x = ...1, '^\\s+', '') %>% 
-           sub(x = ., '\\s\\d\\sリンク', '')) %>% 
+           sub(x = ., '\\sリンク先概要[12]', '')) %>% 
   separate(col = ...1, into = c(as.character(1:6)), sep = '\\s+') %>%
   # いらない行を削る
   slice(c(-1, -2, -nrow(.))) %>% 
@@ -145,19 +188,22 @@ data <-
          day = str_pad(day, width = 2, side = 'left', pad = '0')) %>% 
   unite(col = 公表日, c(year, month, day), sep = '-') %>% 
   # 年代のクリーニング
-  mutate(年代 = case_when(年代 == '未就学児' ~ '0',
-                          grepl(x = 年代, '代') ~ sub(x = 年代, '代', ''),
+  mutate(年代 = case_when(年代 %in% c('未就学児', '10歳未満') ~ '0代',
+                          grepl(x = 年代, '代') ~ 年代,
                           TRUE ~ NA_character_)) %>% 
   # 性別のクリーニング
-  mutate(性別 = case_when(性別 %in% c('男性', '女性') ~ sub(x = 性別, '性', ''),
+  mutate(性別 = case_when(性別 %in% c('男性', '女性') ~ 性別,
+                          性別 == '女児' ~ '女性',
                           TRUE ~ NA_character_)) %>% 
   # 居住地のクリーニング（市町村が判明しているもの以外は欠損値指定）
-  mutate(居住地 = case_when(grepl(x = 居住地, '[市町]') ~ 居住地, TRUE ~NA_character_)) %>% 
+  mutate(居住地 = case_when(grepl(x = 居住地, '[市町]') ~ 居住地, 
+                         居住地 %in% c('埼玉県', '調査中') ~ NA_character_,
+                         TRUE ~ '県外')) %>% 
   # 型変換
   mutate(ID = parse_double(ID),
          公表日 = parse_date(公表日)) %>% 
   # 県名の付与
-  mutate(都道府県 = '埼玉県') %>% select(都道府県, everything())
+  mutate(都道府県 = '埼玉県') %>% select(都道府県, everything()) 
   
 
 # 保存
@@ -172,14 +218,24 @@ download.file(url = 'http://www.pref.osaka.lg.jp/attach/23711/00346644/youseisya
 
 data <-
   # rangeは長めに取っておく
-  readxl::read_excel(path = 'data/covid19_Osaka.xlsx', range = 'A2:H1000') %>% 
+  readxl::read_excel(path = 'data/covid19_Osaka.xlsx', range = 'A2:E2000') %>% 
+  
   # 余分にとった行を削る
   drop_na() %>% 
-  # いらない列を落とす
-  select(ID = 1, 公表日 = 2, 年代, 性別, 居住地, 入退院の状況) %>% 
-  mutate(公表日 = as_date(公表日),
-            年代 = sub(x = 年代, pattern = '.*就学児', replacement = '0'),
-            性別 = sub(x = 性別, pattern = '性', replacement = '')) %>% 
+  # リネーム
+  rename(ID = 1, 公表日 = 2) %>% 
+  # 公表日のクリーニング
+  mutate(公表日 = as_date(公表日)) %>% 
+  # 年代のクリーニング
+  mutate(年代 = case_when(grepl(x = 年代, '.*就学児') ~ sub(x = 年代, '.*就学児', '0代'),
+                        TRUE ~ paste0(年代, '代'))) %>%  
+  # 性別のクリーニング
+  # 今のところなし
+  
+  # 居住地のクリーニング
+  mutate(居住地 = case_when(grepl(x = 居住地, '[市町村]') ~ 居住地,
+                         grepl(x = 居住地, '府外') ~ '県外',
+                         TRUE ~ NA_character_)) %>% 
   # 県名の付与
   mutate(都道府県 = '大阪府') %>% select(都道府県, everything())
   
@@ -189,16 +245,17 @@ write_excel_csv(data, path = 'data/covid19_Osaka.csv')
 
 # 東京都 --------------------------------------------------------------
 
-data <- 
+data <-
   read_csv('https://stopcovid19.metro.tokyo.lg.jp/data/130001_tokyo_covid19_patients.csv') %>%  
   select(ID = 1, 公表日 = 5, 年代 = 9, 性別 = 10) %>% 
   # 年代のクリーニング
-  mutate(年代 = case_when(年代 == '10歳未満' ~ '0',
-                          grepl(x = 年代, '代') ~ sub(x = 年代, '代', ''),
+  mutate(年代 = case_when(年代 == '10歳未満' ~ '0代',
+                          年代 == '100歳以上' ~ '90代',
+                          grepl(x = 年代, '代$') ~ 年代,
                           TRUE ~ NA_character_)) %>% 
   # 性別のクリーニング
-  mutate(性別 = case_when(grepl(x = 性別, '性') ~ sub(x = 性別, '性', ''),
-                        性別 == '男' ~ 性別,
+  mutate(性別 = case_when(grepl(x = 性別, '性') ~ 性別,
+                        性別 == '男' ~ '男性',
                         TRUE ~ NA_character_)) %>% 
   # 県名の付与
   mutate(都道府県 = '東京都') %>% select(都道府県, everything()) 
@@ -215,15 +272,16 @@ data <-
            locale = locale(encoding = 'SHIFT-JIS')) %>%  
   # 年代のクリーニング
   mutate(年代 = case_when(grepl(x = 年代, pattern = '[ー－]') ~ NA_character_,
-                        年代 == '10歳未満' ~ '0',
-                        TRUE ~ sub(x = 年代, pattern = '代', '')),
-           # 性別のクリーニング
-           性別 = case_when(grepl(x = 性別, pattern = '－') ~ NA_character_,
-                          TRUE ~ sub(x = 性別, '性', ''))) %>% 
+                        年代 == '10歳未満' ~ '0代',
+                        TRUE ~ 年代)) %>% 
+  # 性別のクリーニング
+  mutate(性別 = case_when(grepl(x = 性別, pattern = '－') ~ NA_character_,
+                          TRUE ~ 性別)) %>%
   # 居住地のクリーニング
   mutate(居住地 = gsub(x = 居住地, '(（.+）|神奈川県|保健.+管内|内)', '')) %>%
-  mutate(居住地 = case_when(grepl(x = 居住地, '(スペイン|市外|国外|^$)') ~ NA_character_,
+  mutate(居住地 = case_when(grepl(x = 居住地, '(市外|^$)') ~ NA_character_,
                          grepl(x = 居住地, '茅.崎') ~ '茅ヶ崎市',
+                         grepl(x = 居住地, '(スペイン|国外)') ~ '県外',
                          TRUE ~ 居住地)) %>% 
   # ID追加，名前を合わせる
   transmute(ID = row_number(),
@@ -248,93 +306,3 @@ merge_data <-
 write_excel_csv(merge_data, 'data/covid19_merge.csv')
 
 
-# 分析 ----------------------------------------------------------------------
-
-df <- read_csv('data/covid19_merge.csv',
-               col_types = cols(年代 = col_character(),
-                                  入退院の状況 = col_character()))
-
-
-# 関東に絞る -------------------------------------------------------------------
-
-Kanto <- 
-  df %>% 
-  filter(都道府県 %in% c('東京都', '埼玉県', '千葉県', '神奈川県'))
-  
-# 関東のみ時系列
-Kanto %>% 
-  group_by(公表日) %>% 
-  summarise(一日の感染者数 = n()) %>% 
-  mutate(累計感染者数 = cumsum(一日の感染者数))  %>% 
-  arrange(desc(公表日)) %>% {
-    print(.)
-    ggplot(., aes(x = 公表日)) +
-      geom_line(aes(y = 累計感染者数))+
-      geom_point(aes(y = 累計感染者数))+
-      geom_bar(aes(y = 一日の感染者数), stat = 'identity')
-  }
-  
-# 年代別感染者数
-Kanto %>% 
-  ggplot(aes(x = 年代, fill = 性別))+
-  geom_bar()
-
-# 性別
-Kanto %>% 
-  group_by(性別, 公表日) %>% 
-  summarise(一日当たり = n()) %>% 
-  mutate(累計 = cumsum(一日当たり)) %>% 
-  drop_na() %>% 
-  ggplot(aes(公表日, 累計, color = 性別))+
-  geom_point()+
-  geom_line()
-
-# 年齢別
-Kanto %>% 
-  group_by(年代, 公表日) %>% 
-  summarise(一日当たり = n()) %>% 
-  mutate(累計 = cumsum(一日当たり)) %>% 
-  drop_na() %>% 
-  ggplot(aes(公表日, 累計, color = 年代))+
-  geom_point()+
-  geom_line()
-
-# （修理中） -------------------------------------------------------------------
-
-
-df %>%
-  group_by(都道府県, 公表日) %>%
-  summarise(一日の感染者数 = n()) %>%
-  mutate(累計感染者数 = cumsum(一日の感染者数))  %>%
-  arrange(都道府県, desc(公表日)) %>% {
-    print(.)
-    ggplot(., aes(x = 公表日)) +
-      geom_line(aes(y = 累計感染者数))+
-      geom_point(aes(y = 累計感染者数))+
-      geom_bar(aes(y = 一日の感染者数), stat = 'identity')+
-      facet_wrap(~都道府県)
-  }
-
-
-df %>%
-  ggplot(aes(x = 年代, fill = 性別))+
-  geom_bar()
-  facet_grid(~都道府県)
-
-df %>%
-  group_by(性別, 公表日) %>%
-  summarise(一日当たり = n()) %>%
-  mutate(累計 = cumsum(一日当たり)) %>%
-  drop_na() %>%
-  ggplot(aes(公表日, 累計, color = 性別))+
-  geom_point()+
-  geom_line()
-
-df %>%
-  group_by(年代, 公表日) %>%
-  summarise(一日当たり = n()) %>%
-  mutate(累計 = cumsum(一日当たり)) %>%
-  drop_na() %>%
-  ggplot(aes(公表日, 累計, color = 年代))+
-  geom_point()+
-  geom_line()
