@@ -29,15 +29,20 @@ print_all <- function(x){
 
 # 各都道府県のデータ取得 -------------------------------------------------------------
 
-# 北海道 ---------------------------------------------------------
+# 北海道（修理中） ---------------------------------------------------------
 
-scrape_res <- read_html('http://www.pref.hokkaido.lg.jp/hf/kth/kak/hasseijoukyou.htm')
+scrape_res <- read_html('http://www.pref.hokkaido.lg.jp/hf/kth/kak/hasseijoukyou.htm', encoding = 'UTF-8')
 
-data <-
+# data <-
   scrape_res %>% 
   html_node(xpath = '//*[@id="rs_contents"]/span/table') %>% 
+    html_table(fill = TRUE) %>% 
+    
+    
+    
+    
   html_table(fill = TRUE) %>% 
-  as_tibble() %>%
+  as_tibble() %>% 
   # 全てNAの列を削る
   filter(rowSums(is.na(.)) != ncol(.)) %>% 
   # 全角を半角に
