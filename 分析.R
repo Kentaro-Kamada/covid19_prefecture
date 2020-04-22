@@ -128,3 +128,31 @@ df %>%
   ggplot(aes(公表日, 累計, color = 年代))+
   geom_point()+
   geom_line()
+
+
+
+# それぞれの県 ------------------------------------------------------------------
+
+
+prefecture <- 
+  function(x){
+df %>% 
+  filter(都道府県 == x)
+  }
+
+prefecture('東京都') %>% 
+  arrange(desc(ID))
+
+prefecture('埼玉県') %>% 
+  arrange(desc(ID))
+
+prefecture('神奈川県') %>% 
+  arrange(desc(ID))
+
+prefecture('千葉県') %>% 
+  arrange(desc(ID)) 
+
+prefecture('大阪府') %>% 
+  arrange(desc(ID))
+
+
