@@ -22,7 +22,9 @@ print_all <- function(x){
 ## 調査中等の場合は欠損値とする
 
 # 居住地
-## 基本的に市区町村単位でコーディングする（北海道のみ札幌市と振興局でコーディング）
+## 基本的に市区町村単位でコーディングする
+## 北海道は札幌市と振興局でコーディング
+## 福岡県は市と郡を用いる 
 ## 都道府県外であることがわかる場合は「県外」とする
 ## 「調査中」や県内であることはわかるが市町村が判然としない場合は欠損値とする
 
@@ -183,11 +185,9 @@ data <-
   # リネーム＆いらない列を削る
   select(ID = 1, 公表日 = 3, 年代 = 4, 性別 = 5, 居住地 = 6) %>% 
   # 公表日のクリーニング
-  separate(col = 公表日, into = c('month', 'day'), sep = '\\p{Han}') %>% 
-  mutate(year = '2020',
-         month = str_pad(month, width = 2, side = 'left', pad = '0'),
-         day = str_pad(day, width = 2, side = 'left', pad = '0')) %>% 
-  unite(col = 公表日, c(year, month, day), sep = '-') %>% 
+  mutate(公表日 = case_when(grepl(x = 公表日, '\\d*月\\d*日') ~ 公表日, TRUE ~ NA_character_) %>% 
+              str_c(str_conv('2020年', 'CP932'), .) %>%
+              parse_date(format = str_conv('%Y年%m月%d日', 'CP932'))) %>% 
   # 年代のクリーニング
   mutate(年代 = case_when(年代 %in% c('未就学児', '10歳未満') ~ '0代',
                           grepl(x = 年代, '代') ~ 年代,
@@ -197,12 +197,11 @@ data <-
                           性別 == '女児' ~ '女性',
                           TRUE ~ NA_character_)) %>% 
   # 居住地のクリーニング（市町村が判明しているもの以外は欠損値指定）
-  mutate(居住地 = case_when(grepl(x = 居住地, '[市町]') ~ 居住地, 
-                         居住地 %in% c('埼玉県', '調査中') ~ NA_character_,
-                         TRUE ~ '県外')) %>% 
+  mutate(居住地 = case_when(居住地 %in% c('埼玉県', '調査中', '川口市外') ~ NA_character_,
+                            grepl(x = 居住地, '[市町]') ~ 居住地, 
+                            TRUE ~ '県外')) %>% 
   # 型変換
-  mutate(ID = parse_double(ID),
-         公表日 = parse_date(公表日)) %>% 
+  mutate(ID = parse_double(ID)) %>% 
   # 県名の付与
   mutate(都道府県 = '埼玉県') %>% select(都道府県, everything()) 
   
@@ -219,10 +218,10 @@ download.file(url = 'http://www.pref.osaka.lg.jp/attach/23711/00346644/youseisya
 
 data <-
   # rangeは長めに取っておく
-  readxl::read_excel(path = 'data/covid19_Osaka.xlsx', range = 'A2:E2000') %>% 
+  readxl::read_excel(path = 'data/covid19_Osaka.xlsx', range = 'A2:E3000') %>% 
   
   # 余分にとった行を削る
-  drop_na() %>% 
+  filter(rowSums(is.na(.)) != ncol(.)) %>%
   # リネーム
   rename(ID = 1, 公表日 = 2) %>% 
   # 公表日のクリーニング
@@ -295,6 +294,56 @@ data <-
 write_excel_csv(data, 'data/covid19_Kanagawa.csv')
 
 
+# 兵庫県 ---------------------------------------------------------------------
+download.file(url = 'https://web.pref.hyogo.lg.jp/kk03/documents/corona-kanjajokyou.xlsx',
+              destfile = 'data/covid19_Hyogo.xlsx', 
+              mode = 'wb')
+
+data <-
+  readxl::read_excel('data/covid19_Hyogo.xlsx', range = 'B6:G2000') %>% 
+    # 余分にとった行を削る
+    filter(rowSums(is.na(.)) != ncol(.)) %>% 
+    # リネーム
+    select(ID = 1, 公表日 = 2, 年代 = 3, 性別 = 4, 居住地 = 6) %>% 
+    # 公表日のクリーニング
+    mutate(公表日 = as_date(公表日)) %>% 
+    # 年代のクリーニング
+    mutate(年代 = case_when(年代 == '非公表' ~ NA_character_,
+                            年代 %in% c('10歳未満', '10代未満') ~ '0代',
+                            TRUE ~ str_c(年代, str_conv('代', 'CP932')))) %>% 
+    # 居住地のクリーニング
+    mutate(居住地 = 
+                case_when(grepl(x = 居住地, '(調査中|市外|大阪府)') ~ NA_character_,
+                          grepl(x = 居住地, '健康福祉事務所管内') ~ sub(x = 居住地, '健康福祉事務所管内', '市'),
+                          grepl(x = 居住地, '[市町]') ~ 居住地,
+                          TRUE ~ '県外')) %>% 
+    # 県名の付与
+    mutate(都道府県 = '兵庫県') %>% select(都道府県, everything())
+    
+# 保存
+write_excel_csv(data, 'data/covid19_Hyogo.csv')
+  
+    
+# 福岡県 ---------------------------------------------------------------------
+data <-
+read_csv('https://ckan.open-governmentdata.org/dataset/8a9688c2-7b9f-4347-ad6e-de3b339ef740/resource/c27769a2-8634-47aa-9714-7e21c4038dd4/download/400009_pref_fukuoka_covid19_patients.csv') %>% 
+  # いらない行を落とす
+  select(都道府県 = 3, ID = 1, 公表日 = 5, 年代 = 9, 性別 = 10, 居住地 = 8) %>% 
+  # 年代のクリーニング
+  mutate(年代 = case_when(年代 %in% c('10歳未満', '1歳未満') ~ '0代',
+                          年代 == '100代' ~ '90代',
+                          TRUE ~ 年代)) %>% 
+  # 居住地のクリーニング
+  mutate(居住地 = case_when(居住地 %in% c('確認中', '調査中', '北九州市外') ~ NA_character_,
+                            居住地 %in% c('山口県下関市', '海外') ~ '県外',
+                            居住地 == '八幡西区' ~ '北九州市',
+                            grepl(x = 居住地, '福岡市') ~ '福岡市',
+                            grepl(x = 居住地, '北九州市') ~ '北九州市',
+                            TRUE ~ 居住地))   
+
+# 保存
+write_excel_csv(data, 'data/covid19_Fukuoka.csv')
+  
 # データのマージ -----------------------------------------------------------------
 
 merge_data <-
