@@ -65,7 +65,7 @@ data <-
                                           ) ~ '釧路総合振興局',
                             str_detect(居住地, '(室蘭市|苫小牧市|登別市|伊達市|豊浦町|壮瞥町|白老町|厚真町|洞爺湖町|安平町|むかわ町)'
                                           ) ~ '胆振総合振興局',
-                            str_detect(居住地, '(日高町|平取町|新冠町|浦河町|様似町|えりも町|ひだか町)'
+                            str_detect(居住地, '(日高町|平取町|新冠町|浦河町|様似町|えりも町|新ひだか町)'
                                           ) ~ '日高振興局',
                             str_detect(居住地, '(函館市|北斗市|松前町|福島町|知内町|木古内町|七飯町|鹿部町|森町|八雲町|長万部町)'
                                           ) ~ '渡島総合振興局',
@@ -282,7 +282,7 @@ data <-
   read_csv(file = 'http://www.pref.kanagawa.jp/osirase/1369/data/csv/patient.csv', 
            locale = locale(encoding = 'SHIFT-JIS')) %>%  
   # 年代のクリーニング
-  mutate(年代 = case_when(grepl(x = 年代, pattern = '[ー－]') ~ NA_character_,
+  mutate(年代 = case_when(grepl(x = 年代, pattern = '(非公表|[ー－])') ~ NA_character_,
                         年代 == '10歳未満' ~ '0代',
                         TRUE ~ 年代)) %>% 
   # 性別のクリーニング
@@ -306,7 +306,7 @@ write_excel_csv(data, 'data/covid19_Kanagawa.csv')
 
 
 # 兵庫県 ---------------------------------------------------------------------
-download.file(url = 'https://web.pref.hyogo.lg.jp/kk03/documents/corona-kanjyajyokyo.xlsx',
+download.file(url = 'https://web.pref.hyogo.lg.jp/kk03/documents/corona-kanjajokyou.xlsx',
               destfile = 'data/covid19_Hyogo.xlsx', 
               mode = 'wb')
 
@@ -320,7 +320,7 @@ data <-
     mutate(公表日 = as_date(公表日)) %>% 
     # 年代のクリーニング
     mutate(年代 = case_when(年代 == '非公表' ~ NA_character_,
-                            年代 %in% c('10歳未満', '10代未満') ~ '0代',
+                            年代 %in% c('10歳未満', '10代未満', '1歳未満') ~ '0代',
                             TRUE ~ str_c(年代, str_conv('代', 'CP932')))) %>% 
     # 居住地のクリーニング
     mutate(居住地 = 
