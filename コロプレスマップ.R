@@ -1,5 +1,11 @@
 library(tidyverse)
 library(sf)
+print_all <- function(x){
+  print(x, n = Inf)
+}
+
+
+# 北海道 ---------------------------------------------------------------------
 
 
 # 地形データの取得 ----------------------------------------------------------------
@@ -71,23 +77,182 @@ df <-
 # データの結合 ------------------------------------------------------------------
 
 bind_data <- 
-  inner_join(shape, df, by = '居住地')
+  left_join(shape, df, by = '居住地')
 
 # コロプレスマップ with ggplot2 ----------------------------------------------------------------
 
 # 振興局別の累計感染者数
 df %>% 
-  arrange(desc(患者数))
+  arrange(desc(患者数)) %>% 
+  print_all()
 
 
 # 作図
 ggplot()+
   geom_sf(data = bind_data, mapping = aes(fill = 患者数))+
   scale_fill_viridis_c(trans = 'log10')+
-  labs(title = '振興局別の新型コロナウイルス累計感染者数（4月29日時点）',
+  labs(title = str_c('振興局別の新型コロナウイルス累計感染者数（',Sys.Date(), '時点）'),
        fill = '累計感染者')+
   # 経緯度線を描画しない
   coord_sf(datum = NA) +
   # 背景色を白にする
   theme_void()
+
+
+
+
+# 大阪府 ---------------------------------------------------------------------
+
+
+# 地形データ -------------------------------------------------------------------
+
+
+# 地形データを読み込む
+shape <- 
+  st_read(dsn = 'data/shape_japan', layer = 'gadm36_JPN_2') %>%
+  # shapeファイルの整理
+  filter(NL_NAME_1 == '大阪府') %>% 
+  rename(居住地 = NL_NAME_2)
+  
+
+# データセットの読み込み -------------------------------------------------------------
+
+data <- read_csv('data/covid19_Osaka.csv')
+
+# 居住地で集計
+df <- 
+  data %>% 
+  group_by(居住地) %>% 
+  summarise(患者数 = n())
+
+
+# データの結合 ------------------------------------------------------------------
+
+bind_data <- 
+  left_join(shape, df, by = '居住地')
+
+# コロプレスマップ with ggplot2 ----------------------------------------------------------------
+
+# 振興局別の累計感染者数
+df %>% 
+  arrange(desc(患者数)) %>% 
+  print_all()
+
+
+# 作図
+ggplot()+
+  geom_sf(data = bind_data, mapping = aes(fill = 患者数))+
+  scale_fill_viridis_c(trans = 'log10')+
+  labs(title = str_c('市町村別の新型コロナウイルス累計感染者数（',Sys.Date(), '時点）'),
+       fill = '累計感染者')+
+  # 経緯度線を描画しない
+  coord_sf(datum = NA) +
+  # 背景色を白にする
+  theme_void()
+
+
+
+
+
+# 兵庫県 ---------------------------------------------------------------------
+
+
+# 地形データ -------------------------------------------------------------------
+
+
+# 地形データを読み込む
+shape <- 
+  st_read(dsn = 'data/shape_japan', layer = 'gadm36_JPN_2') %>%
+  # shapeファイルの整理
+  filter(NL_NAME_1 == '兵庫県') %>% 
+  rename(居住地 = NL_NAME_2)
+
+
+# データセットの読み込み -------------------------------------------------------------
+
+data <- read_csv('data/covid19_Hyogo.csv')
+
+# 居住地で集計
+df <- 
+  data %>% 
+  group_by(居住地) %>% 
+  summarise(患者数 = n())
+
+
+# データの結合 ------------------------------------------------------------------
+
+bind_data <- 
+  left_join(shape, df, by = '居住地')
+
+# コロプレスマップ with ggplot2 ----------------------------------------------------------------
+
+# 振興局別の累計感染者数
+df %>% 
+  arrange(desc(患者数)) %>% 
+  print_all()
+
+
+# 作図
+ggplot()+
+  geom_sf(data = bind_data, mapping = aes(fill = 患者数))+
+  scale_fill_viridis_c(trans = 'log10')+
+  labs(title = str_c('市町村別の新型コロナウイルス累計感染者数（',Sys.Date(), '時点）'),
+       fill = '累計感染者')+
+  # 経緯度線を描画しない
+  coord_sf(datum = NA) +
+  # 背景色を白にする
+  theme_void()
+
+
+
+# 埼玉県 ---------------------------------------------------------------------
+
+
+# 地形データ -------------------------------------------------------------------
+
+
+# 地形データを読み込む
+shape <- 
+  st_read(dsn = 'data/shape_japan', layer = 'gadm36_JPN_2') %>%
+  # shapeファイルの整理
+  filter(NL_NAME_1 == '埼玉県') %>% 
+  rename(居住地 = NL_NAME_2)
+
+
+# データセットの読み込み -------------------------------------------------------------
+
+data <- read_csv('data/covid19_Saitama.csv')
+
+# 居住地で集計
+df <- 
+  data %>% 
+  group_by(居住地) %>% 
+  summarise(患者数 = n())
+
+
+# データの結合 ------------------------------------------------------------------
+
+bind_data <- 
+  left_join(shape, df, by = '居住地')
+
+# コロプレスマップ with ggplot2 ----------------------------------------------------------------
+
+# 振興局別の累計感染者数
+df %>% 
+  arrange(desc(患者数)) %>% 
+  print_all()
+
+
+# 作図
+ggplot()+
+  geom_sf(data = bind_data, mapping = aes(fill = 患者数))+
+  scale_fill_viridis_c(trans = 'log10')+
+  labs(title = str_c('市町村別の新型コロナウイルス累計感染者数（',Sys.Date(), '時点）'),
+       fill = '累計感染者')+
+  # 経緯度線を描画しない
+  coord_sf(datum = NA) +
+  # 背景色を白にする
+  theme_void()
+
+
 

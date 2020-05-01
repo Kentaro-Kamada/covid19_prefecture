@@ -42,6 +42,7 @@ data <-
   # とりあえず全角が含まれているので半角に
   mutate(年代 = stringi::stri_trans_nfkc(年代)) %>% 
   mutate(年代 = case_when(年代 %in% c('高齢者', '非公表') ~ NA_character_,
+                          年代 == '100代' ~ '90代',
                           年代 == '10歳未満' ~ '0代',
                           TRUE ~ 年代)) %>%
   
@@ -283,6 +284,7 @@ data <-
            locale = locale(encoding = 'SHIFT-JIS')) %>%  
   # 年代のクリーニング
   mutate(年代 = case_when(grepl(x = 年代, pattern = '(非公表|[ー－])') ~ NA_character_,
+                        年代 == '90代～' ~ '90代',
                         年代 == '10歳未満' ~ '0代',
                         TRUE ~ 年代)) %>% 
   # 性別のクリーニング

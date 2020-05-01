@@ -103,3 +103,21 @@ Kanto %>%
 
 
 
+
+
+
+# 北海道 ---------------------------------------------------------------------
+
+Hokkaido <- 
+  df %>% filter(都道府県 == '北海道')
+
+Hokkaido %>% 
+  group_by(性別, 年代, 公表日) %>%
+  summarise(一日当たり = n()) %>%
+  mutate(累計 = cumsum(一日当たり)) %>%
+  drop_na() %>%
+  ggplot(aes(公表日, 累計, color = 性別))+
+  geom_line()+
+  geom_point()+
+  scale_x_date(date_breaks = '3 week')+
+  facet_wrap(~年代)
