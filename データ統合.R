@@ -45,7 +45,7 @@ data <-
   mutate(年代 = stringi::stri_trans_nfkc(年代)) %>% 
   mutate(年代 = case_when(年代 %in% c('高齢者', '非公表') ~ NA_character_,
                           年代 == '100代' ~ '90代',
-                          年代 == '10歳未満' ~ '0代',
+                          str_detect(年代, '10歳') ~ '0代',
                           TRUE ~ 年代)) %>%
   
   # 性別のクリーニング
@@ -193,7 +193,7 @@ data <-
            sub(x = ., '\\sリンク先概要[12]', '')) %>% 
   separate(col = ...1, into = c(as.character(1:6)), sep = '\\s+') %>%
   # いらない行を削る
-  slice(c(-1, -2, -nrow(.))) %>% 
+  filter(str_detect(`1`, '\\d+')) %>% 
   # リネーム＆いらない列を削る
   select(ID = 1, 公表日 = 3, 年代 = 4, 性別 = 5, 居住地 = 6) %>% 
   # 公表日のクリーニング
@@ -202,6 +202,7 @@ data <-
               parse_date(format = str_conv('%Y年%m月%d日', 'CP932'))) %>% 
   # 年代のクリーニング
   mutate(年代 = case_when(年代 %in% c('未就学児', '10歳未満') ~ '0代',
+                          年代 %in% c('90代以', '90代以上') ~ '80以上',
                           grepl(x = 年代, '代') ~ 年代,
                           TRUE ~ NA_character_)) %>% 
   # 性別のクリーニング
@@ -286,8 +287,8 @@ data <-
            locale = locale(encoding = 'SHIFT-JIS')) %>%  
   # 年代のクリーニング
   mutate(年代 = case_when(grepl(x = 年代, pattern = '(非公表|[ー－])') ~ NA_character_,
-                        年代 == '90代～' ~ '90代',
-                        年代 == '10歳未満' ~ '0代',
+                        年代 %in% c('90代～', '100歳以上') ~ '90代',
+                        年代 %in% c('10歳未満', '10代未満') ~ '0代',
                         TRUE ~ 年代)) %>% 
   # 性別のクリーニング
   mutate(性別 = case_when(grepl(x = 性別, pattern = '－') ~ NA_character_,
@@ -315,10 +316,16 @@ write_excel_csv(data, 'data/covid19_Kanagawa.csv')
 
 
 # 兵庫県 ---------------------------------------------------------------------
-download.file(url = 'https://web.pref.hyogo.lg.jp/kk03/documents/corona-kanjajokyou.xlsx',
+scrape_res <- read_html('https://web.pref.hyogo.lg.jp/kk03/corona_kanjyajyokyo.html')
+
+scrape_res %>% 
+  html_nodes('a') %>% 
+  html_attr('href') %>% 
+  str_subset('xlsx$') %>% 
+  str_c('https://web.pref.hyogo.lg.jp', .) %>% 
+  download.file(url = .,
               destfile = 'data/covid19_Hyogo.xlsx', 
               mode = 'wb')
-
 data <-
   readxl::read_excel('data/covid19_Hyogo.xlsx', range = 'B6:G2000') %>% 
     # 余分にとった行を削る
@@ -346,7 +353,7 @@ write_excel_csv(data, 'data/covid19_Hyogo.csv')
     
 # 福岡県 ---------------------------------------------------------------------
 data <-
-read_csv('https://ckan.open-governmentdata.org/dataset/8a9688c2-7b9f-4347-ad6e-de3b339ef740/resource/c27769a2-8634-47aa-9714-7e21c4038dd4/download/400009_pref_fukuoka_covid19_patients.csv') %>% 
+  read_csv('https://ckan.open-governmentdata.org/dataset/8a9688c2-7b9f-4347-ad6e-de3b339ef740/resource/c27769a2-8634-47aa-9714-7e21c4038dd4/download/400009_pref_fukuoka_covid19_patients.csv') %>% 
   # いらない行を落とす
   select(都道府県 = 3, ID = 1, 公表日 = 5, 年代 = 9, 性別 = 10, 居住地 = 8) %>% 
   # 年代のクリーニング
