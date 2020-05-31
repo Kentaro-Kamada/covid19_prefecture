@@ -47,13 +47,27 @@ df %>%
       facet_wrap(~都道府県)
   }
 
+
 # 1日当たりの感染者数
+# 感染者数が0人の日はNAになってしまうので対処
+date_index <- 
+  tibble(
+    公表日 = seq(as_date('2020-01-11'), Sys.Date(), by = 'day'),
+  )
+
 df %>%
   group_by(都道府県, 公表日) %>%
   summarise(一日の感染者数 = n()) %>%
-  mutate(前一週間の移動平均 = zoo::rollmean(一日の感染者数, 7, na.pad = T, align = 'right'),
-                  累計感染者数 = cumsum(一日の感染者数)
-                  )  %>%
+  nest() %>% 
+  mutate(data = map(data, 
+                    ~{full_join(., date_index, by = '公表日') %>% 
+                        mutate(一日の感染者数 = replace_na(一日の感染者数, 0))})) %>% 
+  unnest(data) %>%  
+  arrange(都道府県, 公表日) %>% 
+  mutate(
+    前一週間の移動平均 = zoo::rollmean(一日の感染者数, 7, na.pad = T, align = 'right'),
+    累計感染者数 = cumsum(一日の感染者数)
+    ) %>% 
   arrange(都道府県, desc(公表日)) %>% {
     slice(., 1:7) %>% print_all()
     ggplot(., aes(x = 公表日)) +
