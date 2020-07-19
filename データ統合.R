@@ -45,11 +45,12 @@ data <-
   mutate(年代 = stringi::stri_trans_nfkc(年代)) %>% 
   mutate(年代 = case_when(年代 %in% c('高齢者', '非公表') ~ NA_character_,
                           年代 == '100代' ~ '90代',
-                          str_detect(年代, '10歳') ~ '0代',
-                          TRUE ~ 年代)) %>%
+                          str_detect(年代, '(10歳|10未満)') ~ '0代',
+                          TRUE ~ str_remove_all(年代, '歳'))) %>%
   
   # 性別のクリーニング
   mutate(性別 = case_when(性別 == '非公表' ~ NA_character_,
+                          性別 == '男' ~ '男性',
                           TRUE ~ 性別)) %>% 
   
   # 居住地のクリーニング
@@ -356,8 +357,12 @@ data <-
   read_csv('https://ckan.open-governmentdata.org/dataset/8a9688c2-7b9f-4347-ad6e-de3b339ef740/resource/c27769a2-8634-47aa-9714-7e21c4038dd4/download/400009_pref_fukuoka_covid19_patients.csv') %>% 
   # いらない行を落とす
   select(都道府県 = 3, ID = 1, 公表日 = 5, 年代 = 9, 性別 = 10, 居住地 = 8) %>% 
+  # 性別のクリーニング
+  mutate(性別 = case_when(性別 == '調査中' ~ NA_character_,
+                          TRUE ~ 性別)) %>% 
   # 年代のクリーニング
-  mutate(年代 = case_when(年代 %in% c('10歳未満', '1歳未満') ~ '0代',
+  mutate(年代 = case_when(年代 == '調査中' ~ NA_character_,
+                          年代 %in% c('10歳未満', '10代未満', '1歳未満') ~ '0代',
                           年代 == '100代' ~ '90代',
                           TRUE ~ 年代)) %>% 
   # 居住地のクリーニング
@@ -374,9 +379,11 @@ write_excel_csv(data, 'data/covid19_Fukuoka.csv')
 # データのマージ -----------------------------------------------------------------
 
 merge_data <-
-  map_dfr(.x = list.files('data', pattern = 'csv') %>% 
-            str_subset(., '(?<!merge).csv$'), 
-      .f = ~{read_csv(file = str_c('data/', .),
+  map_dfr(.x = 
+            list.files('data', pattern = 'csv') %>%
+            str_subset(., '(?<!merge).csv$'),
+          .f = 
+            ~{read_csv(file = str_c('data/', .),
                       col_types = cols(年代 = col_character()))})
 
 # 保存

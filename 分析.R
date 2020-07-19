@@ -1,5 +1,16 @@
 library(tidyverse)
 library(magrittr)
+print_all <- function(x){
+  print(x, n = Inf)
+}
+p_star <- function(p.value){
+  case_when(p.value < 0.001 ~ '***',
+            p.value < 0.01 ~ '**',
+            p.value < 0.05 ~ '*',
+            p.value < 0.1 ~ '+',
+            TRUE ~ '')  
+}
+
 
 df <-
   read_csv('data/covid19_merge.csv', locale = locale(encoding = 'UTF-8')) %>%
@@ -18,8 +29,7 @@ df %>%
   drop_na() %>%
   ggplot(aes(公表日, 累計, color = 性別))+
   geom_line()+
-  geom_point()+
-  scale_x_date(date_breaks = '3 week')+
+  scale_x_date(date_breaks = '1 month')+
   facet_wrap(~年代)
 
 df %>%
@@ -28,9 +38,8 @@ df %>%
   mutate(累計 = cumsum(一日当たり)) %>%
   drop_na() %>%
   ggplot(aes(公表日, 累計, color = 年代 %>% fct_reorder(累計, .fun = max, .desc =T)))+
-  geom_point()+
   geom_line()+
-  scale_x_date(date_breaks = '2 week')+
+  scale_x_date(date_breaks = '1 month')+
   labs(color = '年代')
 
 
@@ -71,7 +80,7 @@ df %>%
   arrange(都道府県, desc(公表日)) %>% {
     slice(., 1:7) %>% print_all()
     ggplot(., aes(x = 公表日)) +
-    geom_bar(aes(y = 一日の感染者数), stat = 'identity', fill = 'red', color = 'red', alpha = 0.5)+
+    geom_bar(aes(y = 一日の感染者数), stat = 'identity', fill = 'red', alpha = 0.5)+
       geom_line(aes(y = 前一週間の移動平均), color = 'blue')+
       facet_wrap(~都道府県)
   }
@@ -98,7 +107,6 @@ Kanto %>%
     print(.)
     ggplot(., aes(x = 公表日)) +
       geom_line(aes(y = 累計感染者数))+
-      geom_point(aes(y = 累計感染者数))+
       geom_bar(aes(y = 一日の感染者数), stat = 'identity')
   }
 
@@ -114,7 +122,6 @@ Kanto %>%
   mutate(累計 = cumsum(一日当たり)) %>% 
   drop_na() %>% 
   ggplot(aes(公表日, 累計, color = 性別))+
-  geom_point()+
   geom_line()+
   facet_wrap(~年代)
 
@@ -125,7 +132,6 @@ Kanto %>%
   mutate(累計 = cumsum(一日当たり)) %>% 
   drop_na() %>% 
   ggplot(aes(公表日, 累計, color = 年代 %>% fct_reorder(.x = 累計, .fun = max, .desc = T)))+
-  geom_point()+
   geom_line()+
   labs(color = '年代')+
   facet_wrap(~性別)
@@ -145,7 +151,6 @@ Hokkaido %>%
   drop_na() %>%
   ggplot(aes(公表日, 累計, color = 性別))+
   geom_line()+
-  geom_point()+
   scale_x_date(date_breaks = '3 week')+
   facet_wrap(~年代)
 
@@ -157,7 +162,6 @@ Hokkaido %>%
   mutate(累計 = cumsum(一日当たり)) %>% 
   drop_na() %>%
   ggplot(aes(公表日, 累計, color = 年代 %>% fct_reorder(.x = 累計, .fun = max, .desc = T)))+
-  geom_point()+
   geom_line()+
   labs(color = '年代')
 
@@ -181,7 +185,7 @@ formulas <- lm_data %$%
       度数 ~ 性別 * 都道府県 + 都道府県 * 年代,
       度数 ~ 都道府県 * 年代 + 年代 * 性別,
       度数 ~ 年代 * 性別 * 都道府県) %>% 
-  enframe('model.no', 'formula')
+  enframe(name = 'model.no', value = 'formula')
 
 
 results <- 
@@ -195,16 +199,13 @@ results %>%
   select(-model, -tidied) %>% 
   unnest(cols = glanced)
 
+
 # 係数
 results %>% 
   select(-model, -glanced) %>% 
-  filter(model.no %in% c(2, 5, 7)) %>% 
+  filter(model.no == 7) %>% 
   unnest(cols = tidied) %>% 
-  mutate(star = case_when(p.value < 0.001 ~ '***',
-                          p.value < 0.01 ~ '**',
-                          p.value < 0.05 ~ '*',
-                          p.value < 0.1 ~ '+',
-                          TRUE ~ '')) %>% 
+  mutate(star = p_star(p.value)) %>% 
   mutate_if(.predicate = is.numeric, .funs = round, digits= 3) %>% 
   print_all()
   
