@@ -1,0 +1,166 @@
+---
+title: "東京都 コロナウイルス"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    
+    highlight: tango
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE, message=FALSE}
+library(knitr)
+library(DT)
+library(rmdformats)
+library(rvest)
+library(lubridate)
+library(tidyverse)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+
+```{r}
+data <- read_csv('https://stopcovid19.metro.tokyo.lg.jp/data/130001_tokyo_covid19_patients.csv') %>% 
+  select(ID = 1, 公表日 = 5, 年代 = 9, 性別 = 10) %>% 
+  # 年代のクリーニング
+  mutate(年代 = case_when(年代 == '10歳未満' ~ '0代',
+                          年代 == '100歳以上' ~ '90代',
+                          grepl(x = 年代, '代$') ~ 年代,
+                          TRUE ~ NA_character_)) %>% 
+  # 性別のクリーニング
+  mutate(性別 = case_when(grepl(x = 性別, '性') ~ 性別,
+                        性別 == '男' ~ '男性',
+                        TRUE ~ NA_character_)) %>% 
+  mutate(
+    across(c(年代, 性別),
+           ~{factor(.) %>% fct_infreq()})
+    )
+```
+
+# 使用するデータ
+
+* [東京都のオープンデータカタログ](https://catalog.data.metro.tokyo.lg.jp/dataset/t000010d0000000068/resource/c2d997db-1450-43fa-8037-ebb11ec28d4c)から取得  
+* PCR陽性者の年齢・性別のデータ
+
+
+```{r}
+data %>% datatable()
+```
+
+# 日別
+
+```{r}
+par_date <-
+  data %>% 
+  group_by(公表日) %>% 
+  summarise(日別陽性者数 = n()) %>% 
+  full_join(
+    x = tibble(公表日 = seq(as_date('2020-01-24'), Sys.Date(), by = 'day')), 
+    y = .,
+    by = '公表日') %>% 
+  replace_na(list(公表日 = NA_Date_, 日別陽性者数 = 0)) %>%
+  mutate(
+    日別陽性者数_移動平均 = 
+      zoo::rollmean(日別陽性者数, k = 7, na.pad = TRUE, fill = 0, align = 'right')
+    )
+  
+```
+
+### 陽性者数の推移
+
+```{r}
+par_date %>% 
+  ggplot(aes(x = 公表日))+
+  geom_bar(aes(y = 日別陽性者数), stat = 'identity', fill = 'red', alpha = 0.4)+
+  geom_line(aes(y = 日別陽性者数_移動平均), color = 'blue')
+  
+```
+
+---
+
+### 検査人数の推移
+
+ソース：https://stopcovid19.metro.tokyo.lg.jp/cards/positive-rate/
+
+```{r}
+scrape_res <- 
+  read_html('https://stopcovid19.metro.tokyo.lg.jp/cards/positive-rate/') %>% 
+  html_node('table') %>% 
+  html_table() %>% 
+  as_tibble() %>% 
+  rename(PCR陽性 = 2, 抗原陽性 = 3, PCR陰性 = 4, 抗原陰性 = 5, 検査人数_移動平均 = 6) %>% 
+  mutate(
+    日付 = 
+      str_c('2020/', 日付) %>%
+      parse_date(format = '%Y/%m/%d'),
+    across(
+      where(is_character),
+      ~{str_remove_all(., ',')}
+      )) %>% 
+  type_convert() %>% 
+  mutate(
+    across(PCR陽性:陽性率,
+           ~{replace_na(., 0)}
+           ))
+```
+
+```{r}
+scrape_res %>%
+  mutate(
+    陽性者数 = PCR陽性 + 抗原陽性,
+    陰性者数 = PCR陰性 + 抗原陰性
+  ) %>% 
+  select(-c(PCR陽性:抗原陰性)) %>% 
+  pivot_longer(cols = c(陽性者数, 陰性者数), names_to = '種別', values_to = '検査人数') %>% 
+  
+  ggplot(aes(x = 日付))+
+  geom_bar(aes(y = 検査人数, 
+               fill = 種別 %>% factor() %>% fct_infreq()), 
+           stat = 'identity', alpha = 0.6)+
+  geom_line(aes(y = 検査人数_移動平均), color = 'darkgreen')+
+  labs(fill = '種別')
+```
+棒グラフはその日の検査人数，折れ線グラフは前1週間の検査人数の移動平均を表す  
+検査人数の増加が顕著である
+
+---
+
+#### 陽性率の推移
+
+* 陽性者数はその日の検査人数により左右される。  
+* 検査人数を統制した上で陽性者数の増減を判断する指標として*陽性率*がある。  
+* 陽性率は以下の式で定義される。
+
+$$
+陽性率(\%) = \frac{陽性者数}{検査人数} \times 100
+$$
+
+* 陽性率1%は，「100人検査したら1人陽性だった」という状況と解釈できる。  
+* 陽性者数・検査人数のばらつきを平準化するため，実際は前1週間の移動平均を利用する。  
+
+```{r}
+positive_rate <- 
+  scrape_res %>% 
+  filter(日付 == max(日付)) %>% 
+  pull(陽性率)
+
+scrape_res %>% 
+  ggplot(aes(日付, 陽性率))+
+  geom_line()+
+  labs(title = str_c(max(scrape_res$日付), 'の陽性率：', positive_rate, '%'))
+```
+
+4月の感染増加時に比べて格段に検査人数が増えているため，  
+検査人数を統制した陽性率はそれほど増加しているわけではない
